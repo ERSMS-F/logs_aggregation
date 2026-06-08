@@ -1,0 +1,95 @@
+// ============================================================
+// 1. DISCOVER all running Docker containers
+// ============================================================
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+// ============================================================
+// 2. RELABEL: strip leading slash from container name
+//    "/my-app" → "my-app"
+// ============================================================
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+// ============================================================
+// 3. COLLECT logs from all containers via Docker socket
+// ============================================================
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.containers.receiver]
+}
+
+// ============================================================
+// 4. PROCESS: label each log line
+//
+// Strategy:
+//   - Try to parse JSON and extract service, level, message
+//   - Use stage.template to compute "formatted" value:
+//       if extracted_service is non-empty → "true", else → "false"
+//   - Promote service, level, formatted as Loki labels
+//   - Keep the full original log line as body (no stage.output)
+// ============================================================
+loki.process "containers" {
+
+  // Step 1: Attempt JSON parsing.
+  // If line is not JSON or fields are absent, extracted values = "".
+  // No log is dropped, no error is thrown.
+  stage.json {
+    expressions = {
+      extracted_service = "service",
+      extracted_level   = "level",
+    }
+  }
+
+  // Step 2: Compute the "formatted" value using a Go template.
+  // If extracted_service is non-empty, formatted = "true", else "false".
+  // Result is stored in a new extracted key called "formatted_value".
+  stage.template {
+    source   = "formatted_value"
+    template = "{{ if .extracted_service }}true{{ else }}false{{ end }}"
+  }
+
+  // Step 3: Promote labels.
+  // - formatted: always set ("true" or "false")
+  // - service:   only non-empty for valid ersms logs
+  // - level:     only non-empty for valid ersms logs
+  // - container: already set by relabeling in step 2 above
+  stage.labels {
+    values = {
+      formatted = "formatted_value",
+      service   = "extracted_service",
+      level     = "extracted_level",
+    }
+  }
+
+  // Step 4: No stage.output → full original log line is kept as body.
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+// ============================================================
+// 5. WRITE to Loki
+// ============================================================
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ============================================================
+// 6. Live debug UI — open http://localhost:12345 in browser
+// ============================================================
+livedebugging {
+  enabled = true
+}
