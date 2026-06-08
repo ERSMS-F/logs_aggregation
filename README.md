@@ -93,3 +93,10 @@ ersms_logger.info_low("message sent to user of id 123")
 ## Notes
 
 Loki consists one line as one log entry. Remember not to print multi-line logs. When using json dump, remember to set `indent=None` to avoid multi-line logs.
+
+
+## Hot to start it?
+
+Simply run `docker compose up`. Wait for the containers to start, then open `http://localhost:3000` in your browser. You should see grafana dashboard. (admin, admin).    
+    
+You can also run `docker compose -f demo/docker-compose.yml up` to start demo application, which will generate random logs for you to test the system.
