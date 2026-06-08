@@ -9,6 +9,7 @@ services:
       - ./loki/loki-config.yml:/etc/loki/loki-config.yml
       - loki-data:/loki
     command: -config.file=/etc/loki/loki-config.yml
+    user: "0"  # run as root, simplest fix
     networks:
       - loki-net
 
